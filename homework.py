@@ -368,45 +368,6 @@ mlp_transforms = {
     ])
 }
 
-"""## Experiment"""
-
-train_df = pd.read_csv('dataset/train.csv', dtype=np.float32)
-model_type =  os.getenv("MODEL", "MLP")  # Change to 'MLP' or 'ViT' as needed
-aug_strategy =  os.getenv("AUGMENTATION", "original")  # Change to 'original', 'aug2', or 'aug3' as needed
-
-# Select transforms based on model
-if model_type == 'ResNet':
-    transform = resnet_transforms[aug_strategy]
-    val_transform = resnet_transforms['original']  # Validation set typically unaugmented
-    batch_size = 64
-    epochs = 20
-    lr = 1e-3
-elif model_type == 'ViT':
-    transform = vit_transforms[aug_strategy]
-    val_transform = vit_transforms['original']
-    batch_size = 64
-    epochs = 20
-    lr = 3e-5
-elif model_type == 'MLP':
-    transform = mlp_transforms[aug_strategy]
-    val_transform = mlp_transforms['original']
-    batch_size = 64
-    epochs = 20
-    lr = 5e-5
-
-# Prepare datasets
-train_dataset = MNISTdataset(train_df, transform=transform)
-val_dataset = MNISTdataset(train_df, transform=val_transform)
-train_set, val_set = train_test_split(train_dataset, test_size=0.3, random_state=666)
-train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True)
-val_loader = DataLoader(val_set, batch_size=batch_size, shuffle=False)
-
-# Initialize model and training components
-model = get_model(model_type)
-optimizer = optim.Adam(model.parameters(), lr=lr)
-loss_func = nn.CrossEntropyLoss()
-scheduler = lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.1)
-
 def plot_confusion_matrix(conf_matrix, model_type, aug_strategy):
     fig, ax = plt.subplots(figsize=(10, 10))
     sns.heatmap(conf_matrix, annot=True, fmt='d', cmap='Blues', ax=ax)
@@ -418,69 +379,107 @@ def plot_confusion_matrix(conf_matrix, model_type, aug_strategy):
     fig.savefig('{}_{}_confusion_matrix.png'.format(model_type, aug_strategy))
     plt.close(fig)
 
-# Train and evaluate
-history, best_model, best_metrics = train_model(
-    model, optimizer, loss_func, scheduler, train_loader, val_loader, epochs, device
-)
 
-results = {
-    'model': model_type,
-    'aug_strategy': aug_strategy,
-    'accuracy': best_metrics['accuracy'],
-    'overfitting': best_metrics['overfitting'],
-    'f1': best_metrics['f1'],
-    'precision': best_metrics['precision'],
-    'recall': best_metrics['recall']
-}
-results_df = pd.DataFrame([results])
-results_df.to_csv(f'results_{model_type}_{aug_strategy}.csv', index=False)
-plot_history(history, model_type, aug_strategy)
-plot_confusion_matrix(history['conf_matrix'], model_type, aug_strategy)
+"""## Experiment"""
 
-test_transforms = {
-    'ResNet': transforms.Compose([transforms.ToTensor()]),
-    'ViT': transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Lambda(lambda x: x.repeat(3, 1, 1)),
-        transforms.Resize((224, 224)),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-    ]),
-    'MLP': transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Lambda(lambda x: x.repeat(3, 1, 1)),
-        transforms.Resize((224, 224)),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-    ])
-}
+# train_df = pd.read_csv('dataset/train.csv', dtype=np.float32)
+# model_type =  os.getenv("MODEL", "MLP")  # Change to 'MLP' or 'ViT' as needed
+# aug_strategy =  os.getenv("AUGMENTATION", "original")  # Change to 'original', 'aug2', or 'aug3' as needed
+model_types = ['MLP', 'ResNet', 'ViT']
+aug_strategies = ['original', 'aug1', 'aug2', 'aug3']
+for model_type in model_types:
+    for aug_strategy in aug_strategies:
+        print(f"\n=== Starting Experiment: Model={model_type}, Augmentation={aug_strategy} ===")
+        train_df = pd.read_csv('dataset/train.csv', dtype=np.float32)
+            
+        # Select transforms based on model
+        if model_type == 'ResNet':
+            transform = resnet_transforms[aug_strategy]
+            val_transform = resnet_transforms['original']  # Validation set typically unaugmented
+            batch_size = 64
+            epochs = 20
+            lr = 1e-3
+        elif model_type == 'ViT':
+            transform = vit_transforms[aug_strategy]
+            val_transform = vit_transforms['original']
+            batch_size = 64
+            epochs = 20
+            lr = 3e-5
+        elif model_type == 'MLP':
+            transform = mlp_transforms[aug_strategy]
+            val_transform = mlp_transforms['original']
+            batch_size = 64
+            epochs = 20
+            lr = 5e-5
 
-#Test Sets
-test_df = pd.read_csv('dataset/test.csv',dtype=np.float32)
-test_dataset = MNISTdataset_inference(test_df, transform = test_transforms[model_type])
-test_loader = DataLoader(test_dataset, batch_size=1024)
+        # Prepare datasets
+        train_dataset = MNISTdataset(train_df, transform=transform)
+        val_dataset = MNISTdataset(train_df, transform=val_transform)
+        train_set, val_set = train_test_split(train_dataset, test_size=0.3, random_state=666)
+        train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True)
+        val_loader = DataLoader(val_set, batch_size=batch_size, shuffle=False)
 
-y_pred_list = []
-with torch.no_grad():
-    for X_test_ld in (test_loader):
-        y_pred = best_model(X_test_ld.to(device))
-        _, y_pred_tags = torch.max(y_pred.data, dim = 1)
-#         y_pred_list.append((y_pred_tags.to('cpu')))
-
-result = [int(i) for i in y_pred_tags.to('cpu')]
-df = pd.Series(result,name = 'Label').reset_index()
-df.rename(columns ={'index':'ImageId'},inplace = True )
-df['ImageId'] = df['ImageId'] +1
-
-output_filename = f'testset_{model_type}_{aug_strategy}.csv'
-df.to_csv(output_filename, index=False)
-sub_status = os.path.exists(output_filename)
-
-print(f"\Check for {model_type} with {aug_strategy}: {sub_status}")
+        # Initialize model and training components
+        model = get_model(model_type)
+        optimizer = optim.Adam(model.parameters(), lr=lr)
+        loss_func = nn.CrossEntropyLoss()
+        scheduler = lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.1)
 
 
+        # Train and evaluate
+        history, best_model, best_metrics = train_model(
+            model, optimizer, loss_func, scheduler, train_loader, val_loader, epochs, device
+        )
 
-# Save model and clear memory
-torch.save(best_model.state_dict(), f'model_{model_type}_{aug_strategy}.pth')
-torch.cuda.empty_cache()
+        results = {
+            'model': model_type,
+            'aug_strategy': aug_strategy,
+            'accuracy': best_metrics['accuracy'],
+            'overfitting': best_metrics['overfitting'],
+            'f1': best_metrics['f1'],
+            'precision': best_metrics['precision'],
+            'recall': best_metrics['recall']
+        }
+        results_df = pd.DataFrame([results])
+        results_df.to_csv(f'results_{model_type}_{aug_strategy}.csv', index=False)
+        plot_history(history, model_type, aug_strategy)
+        plot_confusion_matrix(history['conf_matrix'], model_type, aug_strategy)
+
+        test_transforms = {
+            'ResNet': transforms.Compose([transforms.ToTensor()]),
+            'ViT': vit_transform_base,
+            'MLP': mlp_transform_base
+        }
+
+        #Test Sets
+        test_df = pd.read_csv('dataset/test.csv',dtype=np.float32)
+        test_dataset = MNISTdataset_inference(test_df, transform = test_transforms[model_type])
+        test_loader = DataLoader(test_dataset, batch_size=1024)
+
+        y_pred_list = []
+        with torch.no_grad():
+            for X_test_ld in (test_loader):
+                y_pred = best_model(X_test_ld.to(device))
+                _, y_pred_tags = torch.max(y_pred.data, dim = 1)
+        #         y_pred_list.append((y_pred_tags.to('cpu')))
+
+        result = [int(i) for i in y_pred_tags.to('cpu')]
+        df = pd.Series(result,name = 'Label').reset_index()
+        df.rename(columns ={'index':'ImageId'},inplace = True )
+        df['ImageId'] = df['ImageId'] +1
+
+        output_filename = f'testset_{model_type}_{aug_strategy}.csv'
+        df.to_csv(output_filename, index=False)
+        sub_status = os.path.exists(output_filename)
+
+        print(f"\Check for {model_type} with {aug_strategy}: {sub_status}")
+        
+        del model, best_model
+        torch.cuda.empty_cache()
+
+        # Save model and clear memory
+        torch.save(best_model.state_dict(), f'model_{model_type}_{aug_strategy}.pth')
+        torch.cuda.empty_cache()
 
 print(f"Finished training {model_type} with {aug_strategy}")
 

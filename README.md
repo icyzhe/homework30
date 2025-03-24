@@ -13,3 +13,10 @@ ResNet and Transformer. When training the deep neural networks for classificatio
 cross-entropy loss.
 
 See homework requirement for more details.
+
+## Getting Started
+### Installation
+To install the environments, run
+```
+git clone https://github.com/icyzhe/homework30.git
+conda env create -f environment.yml
